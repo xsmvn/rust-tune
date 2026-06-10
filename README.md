@@ -1,2 +1,0 @@
-# rust-tune
-student project
