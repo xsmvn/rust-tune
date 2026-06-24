@@ -10,16 +10,9 @@ impl ProfilePage {
         ProfilePage {}
     }
 
-   /*     fn games_completion_ratio(&self, games: Vec<Game>) -> Map<String, u32> {
-            let stats: Map<String,u32>;
-            stats
-        }
-    */
 
-
-    // ✨ Nouvelle méthode: affichage complet
     pub fn view<'a>(&'a self, home_page: &HomePage) -> Element<'a,crate::Message> {
-        let games = &home_page;
+        let songs = &home_page;
 
         column![
             text("Profil").size(24),
@@ -27,7 +20,6 @@ impl ProfilePage {
 
             container(
                 text("Vos statistique"),
-                //games_completion_ratio(games)
             ),
 
         ]

@@ -7,7 +7,7 @@ edition = "2024"
 iced = { version = "0.14", features = ["tokio", "image"] }
 
 # Audio
-rodio = { version = "0.22.1", default-features = false, features = ["symphonia-all"] }
+rodio = { version = "0.22.1", features = ["symphonia-all", "playback"] }
 symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg"] } # pour le décodage
 
 # Extra
