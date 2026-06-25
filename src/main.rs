@@ -1,9 +1,8 @@
 mod page;
 mod model;
-use iced::{Theme, border};
-use iced::widget::button::background;
+use iced::{Theme, border,Alignment, Subscription, time};
 use iced::{Element, Task, Color};
-use iced::widget::{button, column, container, row, Button, text};
+use iced::widget::{button, column, container, row, Button, text, slider};
 
 use iced::Length;
 
@@ -38,7 +37,9 @@ pub enum Message {
     Pause,
     NextSong,
     PreviousSong,
-    PlaySong(String), // Lance un son depuis home
+    PlaySong(String),
+    Tick, // Pour mettre à jour la progression de la music en cours de lecture
+    Seek(f32),
 }
 
 struct RustTune {
@@ -51,6 +52,7 @@ struct RustTune {
     _stream: Arc<Mutex<Option<MixerDeviceSink>>>,
     current_song: Option<String>,
     is_playing: bool,
+    current_progress: f32,
 }
 
 fn transparent_button_style(t: Theme) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
@@ -82,6 +84,7 @@ fn new() -> (RustTune, Task<Message>) {
         _stream: Arc::new(Mutex::new(None)),
         current_song: None,
         is_playing: false,
+        current_progress: 0.0,
     };
     (app, Task::none())
 }
@@ -116,15 +119,41 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
         }
         Message::PlaySong(path) => {
             app.play_song(&path);
+            app.current_progress = 0.0;
+        }
+
+        Message::Tick => {
+            if app.is_playing {
+                if let Some(p) = app.player.lock().unwrap().as_ref() {
+                    // rodio 0.22 : get_pos() retourne la position actuelle
+                    let pos = p.get_pos().as_secs_f32();
+                    // Pour l'instant on approxime (durée totale pas facile sans decoder séparé)
+                    // On peut améliorer plus tard
+                    app.current_progress = (pos / 180.0).min(1.0); // ex: assume 3 minutes max
+                }
+            }
+        }
+        Message::Seek(progress) => {
+            if let Some(p) = app.player.lock().unwrap().as_ref() {
+                // On approxime la durée (à améliorer plus tard)
+                let estimated_duration = std::time::Duration::from_secs(180); // 3 minutes par défaut
+                let target = estimated_duration.mul_f32(progress);
+                let _ = p.try_seek(target);
+                app.current_progress = progress;
+            }
         }
     }
     Task::none()
 }
 
+fn subscription(_app: &RustTune) -> Subscription<Message> {
+    iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::Tick)
+}
+
+
 // ==================== BARRE D'AUDIO ====================
 fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
     let title = app.current_song.as_deref().unwrap_or("Aucune piste");
-
 
     row![
         button(text("⏮")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::PreviousSong),
@@ -134,11 +163,18 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
             button(text("▶")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::Play)
         },
         button(text("⏭")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::NextSong),
-        text(title).size(16).width(Length::Fill),
+        
+        // slider pour changer la position du son, a finir !!!!!!!!!!!!!!!!!!!!
+        slider(0.0..=1.0, app.current_progress, Message::Seek)
+            .width(Length::Fill)
+            .height(6)
+            .step(0.001),
+        
+        text(title).size(16),
     ]
     .spacing(16)
     .padding(16)
-    .align_y(iced::Alignment::Center)
+    .align_y(Alignment::Center)
     .into()
 }
 
@@ -224,9 +260,10 @@ impl RustTune {
 
 // ====================== MAIN ======================
 pub fn main() -> iced::Result {
-    iced::application(new, update, view)
+        iced::application(new, update, view)
         .title("Rust Tune ♫")           
         .theme(theme)                   
+        .subscription(subscription)   // ← Ajoute ça
         .window(iced::window::Settings {
             size: iced::Size::new(1000.0, 800.0),
             ..Default::default()
