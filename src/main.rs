@@ -1,6 +1,6 @@
 mod page;
 mod model;
-use iced::{Theme, border,Alignment, Subscription, time};
+use iced::{Theme, border, Alignment, Subscription, time};
 use iced::{Element, Task, Color};
 use iced::widget::{button, column, container, row, Button, text, slider};
 
@@ -14,7 +14,7 @@ use crate::model::song::Song;
 use crate::page::home;
 
 // ==================== RODIO 0.22 (avec playback) ====================
-use rodio::{Decoder, Player, MixerDeviceSink};
+use rodio::{Decoder, MixerDeviceSink, Player, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
@@ -38,7 +38,7 @@ pub enum Message {
     NextSong,
     PreviousSong,
     PlaySong(String),
-    Tick, // Pour mettre à jour la progression de la music en cours de lecture
+    Tick,
     Seek(f32),
 }
 
@@ -49,9 +49,10 @@ struct RustTune {
     settings_page: SettingsPage,
     theme_choosen: Theme,
     player: Arc<Mutex<Option<Player>>>,
-    _stream: Arc<Mutex<Option<MixerDeviceSink>>>,
+    stream: Arc<Mutex<Option<MixerDeviceSink>>>,
     current_song: Option<String>,
     is_playing: bool,
+    current_duration: Arc<Mutex<std::time::Duration>>,
     current_progress: f32,
 }
 
@@ -81,10 +82,11 @@ fn new() -> (RustTune, Task<Message>) {
         settings_page: SettingsPage::new(),
         theme_choosen: Theme::Light,
         player: Arc::new(Mutex::new(None)),
-        _stream: Arc::new(Mutex::new(None)),
+        stream: Arc::new(Mutex::new(None)),
         current_song: None,
         is_playing: false,
-        current_progress: 0.0,
+        current_duration: Arc::new(Mutex::new(std::time::Duration::from_secs(0))),
+        current_progress: 0.0, 
     };
     (app, Task::none())
 }
@@ -110,7 +112,6 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 app.is_playing = false;
             }
         }
-        // a faire !!!!!
         Message::NextSong => {
             println!("▶ Next song"); 
         }
@@ -121,23 +122,23 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
             app.play_song(&path);
             app.current_progress = 0.0;
         }
-
         Message::Tick => {
             if app.is_playing {
                 if let Some(p) = app.player.lock().unwrap().as_ref() {
-                    // rodio 0.22 : get_pos() retourne la position actuelle
-                    let pos = p.get_pos().as_secs_f32();
-                    // Pour l'instant on approxime (durée totale pas facile sans decoder séparé)
-                    // On peut améliorer plus tard
-                    app.current_progress = (pos / 180.0).min(1.0); // ex: assume 3 minutes max
+                    let pos = p.get_pos();
+                    let duration = *app.current_duration.lock().unwrap();
+                    if duration.as_secs() > 0 {
+                        app.current_progress = pos.as_secs_f32() / duration.as_secs_f32();
+                    } else {
+                        app.current_progress = (pos.as_secs_f32() / 180.0).min(1.0);
+                    }
                 }
             }
         }
         Message::Seek(progress) => {
             if let Some(p) = app.player.lock().unwrap().as_ref() {
-                // On approxime la durée (à améliorer plus tard)
-                let estimated_duration = std::time::Duration::from_secs(180); // 3 minutes par défaut
-                let target = estimated_duration.mul_f32(progress);
+                let duration = *app.current_duration.lock().unwrap();
+                let target = duration.mul_f32(progress);
                 let _ = p.try_seek(target);
                 app.current_progress = progress;
             }
@@ -151,9 +152,36 @@ fn subscription(_app: &RustTune) -> Subscription<Message> {
 }
 
 
-// ==================== BARRE D'AUDIO ====================
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_secs = duration.as_secs();
+    let minutes = total_secs / 60;
+    let seconds = total_secs % 60;
+    format!("{:02}:{:02}", minutes, seconds)
+}
+
 fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
     let title = app.current_song.as_deref().unwrap_or("Aucune piste");
+
+    let current_pos = if let Some(p) = app.player.lock().unwrap().as_ref() {
+        p.get_pos()
+    } else {
+        std::time::Duration::from_secs(0)
+    };
+
+    let total = *app.current_duration.lock().unwrap();
+    let remaining = if total > current_pos {
+        total - current_pos
+    } else {
+        std::time::Duration::from_secs(0)
+    };
+
+    let elapsed_text = format_duration(current_pos);
+    let total_text = format_duration(total);
+    let remaining_text = format!("-{}", format_duration(remaining));
+
+    let time_display = text(format!("{} / {} {}", elapsed_text, total_text, remaining_text))
+        .size(14);
 
     row![
         button(text("⏮")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::PreviousSong),
@@ -164,13 +192,13 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
         },
         button(text("⏭")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::NextSong),
         
-        // slider pour changer la position du son, a finir !!!!!!!!!!!!!!!!!!!!
         slider(0.0..=1.0, app.current_progress, Message::Seek)
             .width(Length::Fill)
             .height(6)
             .step(0.001),
         
         text(title).size(16),
+        time_display,
     ]
     .spacing(16)
     .padding(16)
@@ -219,17 +247,23 @@ fn theme(app: &RustTune) -> Theme {
     app.theme_choosen.clone()
 }
 
-// ====================== PLAYER ======================
+
 impl RustTune {
-   pub fn play_song(&mut self, file_path: &str) {
-        // Arrêter l'ancienne lecture, si y'en a
+    pub fn play_song(&mut self, file_path: &str) {
         let _ = self.player.lock().unwrap().take();
 
         self.current_song = Some(file_path.to_string());
         self.is_playing = true;
+        self.current_progress = 0.0;
+
+        {
+            let mut dur = self.current_duration.lock().unwrap();
+            *dur = std::time::Duration::from_secs(0);
+        }
 
         let player_clone = Arc::clone(&self.player);
-        let stream_clone = Arc::clone(&self._stream);
+        let stream_clone = Arc::clone(&self.stream);
+        let duration_clone = Arc::clone(&self.current_duration);
         let path = file_path.to_string();
 
         std::thread::spawn(move || {
@@ -245,10 +279,16 @@ impl RustTune {
             let mixer = guard.as_ref().unwrap().mixer();
             let player = Player::connect_new(&mixer);
 
-            // Lecture
             if let Ok(file) = File::open(&path) {
                 let buffered = BufReader::new(file);
                 if let Ok(source) = Decoder::new(buffered) {
+                    let duration = source.total_duration().unwrap_or(std::time::Duration::from_secs(180));
+                    
+                    {
+                        let mut dur = duration_clone.lock().unwrap();
+                        *dur = duration;
+                    }
+
                     player.append(source);
                     let mut p = player_clone.lock().unwrap();
                     *p = Some(player);
@@ -260,10 +300,10 @@ impl RustTune {
 
 // ====================== MAIN ======================
 pub fn main() -> iced::Result {
-        iced::application(new, update, view)
+    iced::application(new, update, view)
         .title("Rust Tune ♫")           
         .theme(theme)                   
-        .subscription(subscription)   // ← Ajoute ça
+        .subscription(subscription)
         .window(iced::window::Settings {
             size: iced::Size::new(1000.0, 800.0),
             ..Default::default()
