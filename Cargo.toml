@@ -8,7 +8,8 @@ iced = { version = "0.14", features = ["tokio", "image"] }
 
 # Audio
 rodio = { version = "0.22.1", features = ["symphonia-all", "playback"] }
-symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg"] } # pour le décodage
+symphonia = { version = "0.5", features = ["mp3", "wav", "flac", "ogg"] }
+cpal = "0.15"
 
 # Extra
 tokio = { version = "1", features = ["full"] }

@@ -1,23 +1,29 @@
 mod page;
 mod model;
+use crate::model::song::Song;
+use crate::page::home;
+
+
 use iced::{Theme, border, Alignment, Subscription, time};
 use iced::{Element, Task, Color};
 use iced::widget::{button, column, container, row, Button, text, slider};
-
 use iced::Length;
-
 use iced_aw::style;
 use iced_aw::style::colors::{DARK, WHITE};
 use page::{home::HomePage, profile::ProfilePage, settings::SettingsPage};
 
-use crate::model::song::Song;
-use crate::page::home;
-
-// ==================== RODIO 0.22 (avec playback) ====================
+// ==================== Rodio & symphonia ====================
 use rodio::{Decoder, MixerDeviceSink, Player, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::probe::Hint;
+use symphonia::default::get_probe;
+
+
+
+
 
 // ==================== Pages ====================
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +44,7 @@ pub enum Message {
     NextSong,
     PreviousSong,
     PlaySong(String),
+    RefreshLibrary,
     Tick,
     Seek(f32),
 }
@@ -112,16 +119,26 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 app.is_playing = false;
             }
         }
+
         Message::NextSong => {
-            println!("▶ Next song"); 
+            app.next_song();
         }
+
         Message::PreviousSong => {
-            println!("◀ Previous song");
+            app.previous_song();
         }
+        
         Message::PlaySong(path) => {
             app.play_song(&path);
             app.current_progress = 0.0;
         }
+
+        Message::RefreshLibrary => {
+            if let Page::Home = app.page_actuelle {
+                app.home_page.refresh();
+            }
+        }
+
         Message::Tick => {
             if app.is_playing {
                 if let Some(p) = app.player.lock().unwrap().as_ref() {
@@ -267,6 +284,12 @@ impl RustTune {
         let path = file_path.to_string();
 
         std::thread::spawn(move || {
+            let duration = get_audio_duration(&path).unwrap_or(std::time::Duration::from_secs(180));
+            {
+                let mut dur = duration_clone.lock().unwrap();
+                *dur = duration;
+            }
+
             let handle = rodio::DeviceSinkBuilder::open_default_sink()
                 .expect("Impossible d'ouvrir le périphérique audio");
 
@@ -282,13 +305,6 @@ impl RustTune {
             if let Ok(file) = File::open(&path) {
                 let buffered = BufReader::new(file);
                 if let Ok(source) = Decoder::new(buffered) {
-                    let duration = source.total_duration().unwrap_or(std::time::Duration::from_secs(180));
-                    
-                    {
-                        let mut dur = duration_clone.lock().unwrap();
-                        *dur = duration;
-                    }
-
                     player.append(source);
                     let mut p = player_clone.lock().unwrap();
                     *p = Some(player);
@@ -296,6 +312,97 @@ impl RustTune {
             }
         });
     }
+
+        pub fn next_song(&mut self) {
+        if self.home_page.Songs.is_empty() {
+            return;
+        }
+
+        let next_path = if let Some(current) = &self.current_song {
+            if let Some(pos) = self.home_page.Songs.iter().position(|s| &s.file_path == current) {
+                let next_pos = (pos + 1) % self.home_page.Songs.len();
+                self.home_page.Songs[next_pos].file_path.clone()
+            } else {
+                self.home_page.Songs[0].file_path.clone()
+            }
+        } else {
+            self.home_page.Songs[0].file_path.clone()
+        };
+
+        self.play_song(&next_path);
+    }
+
+    pub fn previous_song(&mut self) {
+        if self.home_page.Songs.is_empty() {
+            return;
+        }
+
+        let prev_path = if let Some(current) = &self.current_song {
+            if let Some(pos) = self.home_page.Songs.iter().position(|s| &s.file_path == current) {
+                let prev_pos = if pos == 0 { self.home_page.Songs.len() - 1 } else { pos - 1 };
+                self.home_page.Songs[prev_pos].file_path.clone()
+            } else {
+                self.home_page.Songs[0].file_path.clone()
+            }
+        } else {
+            self.home_page.Songs[0].file_path.clone()
+        };
+
+        self.play_song(&prev_path);
+    }
+
+}
+
+fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::probe::Hint;
+    use symphonia::default::get_probe;
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return None,
+    };
+
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = std::path::Path::new(path).extension() {
+        hint.with_extension(&ext.to_string_lossy().to_lowercase());
+    }
+
+    let probed = match get_probe().format(&hint, mss, &Default::default(), &Default::default()) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+
+    let track = match probed.format.default_track() {
+        Some(t) => t,
+        None => return None,
+    };
+
+    let params = &track.codec_params;
+
+    // Méthode 1 : Calcul précis avec n_frames + sample_rate (la plus fiable)
+    if let (Some(n_frames), Some(sample_rate)) = (params.n_frames, params.sample_rate) {
+        let duration_secs = n_frames as f64 / sample_rate as f64;
+        return Some(std::time::Duration::from_secs_f64(duration_secs));
+    }
+
+    // Méthode 2 : Via time_base (fallback)
+    if let (Some(time_base), Some(n_frames)) = (params.time_base, params.n_frames) {
+        let time = time_base.calc_time(n_frames);
+        let duration_secs = time.seconds as f64 + time.frac as f64;
+        return Some(std::time::Duration::from_secs_f64(duration_secs));
+    }
+
+    // Méthode 3 : Fallback rodio si Symphonia ne donne rien
+    if let Ok(file) = File::open(path) {
+        let buffered = BufReader::new(file);
+        if let Ok(source) = Decoder::new(buffered) {
+            return source.total_duration();
+        }
+    }
+    None
 }
 
 // ====================== MAIN ======================

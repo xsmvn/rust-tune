@@ -1,4 +1,4 @@
-use iced::{Element, Length, widget::{column, text, container, row, scrollable, button}};
+use iced::{Element, Length, widget::{column, text, container, row, scrollable, button}, Alignment};
 use iced_aw::Wrap;
 use crate::model::song::Song;
 use std::fs;
@@ -12,8 +12,7 @@ pub struct HomePage {
 
 impl HomePage {
     pub fn new() -> Self {
-        let songs: Vec<Song> = Self::load_songs();
-        HomePage { Songs: songs }
+        HomePage { Songs: Self::load_songs() }
     }
 
     pub fn load_songs() -> Vec<Song> {
@@ -21,7 +20,7 @@ impl HomePage {
         let music_dir = Path::new("music_files");
 
         if !music_dir.exists() {
-            println!("Dossier 'music_files' non trouvé.");
+            println!("Dossier 'music_files' non trouvé. Crée-le !");
             return songs;
         }
 
@@ -29,10 +28,13 @@ impl HomePage {
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
                 if let Some(ext) = path.extension() {
-                    if ext == "mp3" || ext == "wav" || ext == "flac" || ext == "ogg" {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if ["mp3", "wav", "flac", "ogg"].contains(&ext_str.as_str()) {
                         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                        let title = file_name.replace(".mp3", "").replace(".wav", "")
-                                           .replace(".flac", "").replace(".ogg", "");
+                        let title = file_name.replace(".mp3", "")
+                                           .replace(".wav", "")
+                                           .replace(".flac", "")
+                                           .replace(".ogg", "");
 
                         let song = Song {
                             id: songs.len() as u32 + 1,
@@ -50,14 +52,26 @@ impl HomePage {
         songs
     }
 
+    pub fn refresh(&mut self) {
+        self.Songs = Self::load_songs();
+        println!("Bibliothèque rafraîchie : {} musiques", self.Songs.len());
+    }
+
     pub fn view<'a>(&'a self) -> Element<'a, crate::Message> {
         let art_cover = self.Songs.iter()
             .map(|song| self.create_song_card(song))
             .collect::<Vec<_>>();
 
         column![
-            text("Home").size(28),
+            row![
+                text("Home").size(28),
+                button(text("Refresh")).on_press(Message::RefreshLibrary),  // ← Bouton ajouté
+            ]
+            .spacing(20)
+            .align_y(Alignment::Center),
+
             text(format!("Songs : {}", self.Songs.len())).size(20),
+
             scrollable(
                 Wrap::with_elements(art_cover)
                     .spacing(16.0)
@@ -65,11 +79,11 @@ impl HomePage {
             ).height(Length::Fill),
         ]
         .spacing(25)
-        .padding(0)
+        .padding(20)
         .into()
     }
 
-        fn create_song_card<'a>(&'a self, song: &crate::model::song::Song) -> Element<'a, crate::Message> {
+    fn create_song_card<'a>(&'a self, song: &Song) -> Element<'a, crate::Message> {
         button(
             container(
                 column![
@@ -78,15 +92,12 @@ impl HomePage {
                         text(song.genre.clone()).size(14),
                         text(" • ").size(14),
                         text(song.artiste.clone()).size(14),
-                    ]
-                    .spacing(6),
-                    text(format!("Artiste : {}", song.artiste.clone())).size(14),
+                    ].spacing(6),
                 ]
                 .spacing(10)
                 .padding(10)
             )
             .width(Length::Fixed(340.0))
-            .padding(0)
         )
         .style(crate::transparent_button_style(iced::Theme::Light))
         .on_press(Message::PlaySong(song.file_path.clone()))
