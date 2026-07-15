@@ -4,6 +4,7 @@ use crate::model::song::Song;
 use std::fs;
 use std::path::Path;
 use crate::Message;
+use rfd::FileDialog;
 
 #[derive(Clone, Debug)]
 pub struct HomePage {
@@ -57,17 +58,18 @@ impl HomePage {
         println!("Bibliothèque rafraîchie : {} musiques", self.Songs.len());
     }
 
-    pub fn view<'a>(&'a self) -> Element<'a, crate::Message> {
+    pub fn view<'a>(&'a self, theme: &'a iced::Theme) -> Element<'a, crate::Message> {
         let art_cover = self.Songs.iter()
-            .map(|song| self.create_song_card(song))
+            .map(|song| self.create_song_card(song, theme))
             .collect::<Vec<_>>();
 
         column![
             row![
                 text("Home").size(28),
-                button(text("Refresh")).on_press(Message::RefreshLibrary),  // ← Bouton ajouté
+                button(text("Refresh")).on_press(Message::RefreshLibrary),
+                button(text("➕ Ajouter")).on_press(Message::AddSong),
             ]
-            .spacing(20)
+            .spacing(15)
             .align_y(Alignment::Center),
 
             text(format!("Songs : {}", self.Songs.len())).size(20),
@@ -83,11 +85,22 @@ impl HomePage {
         .into()
     }
 
-    fn create_song_card<'a>(&'a self, song: &Song) -> Element<'a, crate::Message> {
+    fn create_song_card<'a>(&'a self, song: &Song, theme: &'a iced::Theme) -> Element<'a, crate::Message> {
         button(
             container(
                 column![
-                    text(song.title.clone()).size(19).width(Length::Fill),
+                    text(song.title.clone())
+                        .size(19)
+                        .width(Length::Fill)
+                        .style(move |_t| {
+                            iced::widget::text::Style {
+                                color: match theme {
+                                    iced::Theme::Light => Some(iced_aw::style::colors::DARK),
+                                    _ => Some(iced_aw::style::colors::WHITE),
+                                }
+                            }
+                        }),
+
                     row![
                         text(song.genre.clone()).size(14),
                         text(" • ").size(14),
@@ -99,8 +112,33 @@ impl HomePage {
             )
             .width(Length::Fixed(340.0))
         )
-        .style(crate::transparent_button_style(iced::Theme::Light))
+        .style(crate::transparent_button_style(theme.clone())) 
         .on_press(Message::PlaySong(song.file_path.clone()))
         .into()
+    }
+
+    pub fn add_song(&mut self) {
+        if let Some(file_path) = FileDialog::new()
+            .add_filter("Audio", &["mp3", "wav", "flac", "ogg"])
+            .set_title("Choisir un fichier audio")
+            .pick_file()
+        {
+            let dest_dir = Path::new("music_files");
+            if !dest_dir.exists() {
+                let _ = fs::create_dir_all(dest_dir);
+            }
+
+            if let Some(file_name) = file_path.file_name() {
+                let dest_path = dest_dir.join(file_name);
+
+                match fs::copy(&file_path, &dest_path) {
+                    Ok(_) => {
+                        println!("Fichier ajouté : {}", file_name.to_string_lossy());
+                        self.refresh();
+                    }
+                    Err(e) => eprintln!("Erreur lors de la copie : {}", e),
+                }
+            }
+        }
     }
 }

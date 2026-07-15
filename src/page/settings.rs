@@ -13,7 +13,6 @@ impl SettingsPage {
         }
     }
 
-    // ✨ Nouvelle méthode: affichage complet
     pub fn view<'a>(&'a self) -> Element<'a, crate::Message> {
         let themes = vec![
             Theme::Light,

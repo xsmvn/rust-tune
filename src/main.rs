@@ -24,7 +24,6 @@ use symphonia::default::get_probe;
 
 
 
-
 // ==================== Pages ====================
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -45,6 +44,7 @@ pub enum Message {
     PreviousSong,
     PlaySong(String),
     RefreshLibrary,
+    AddSong,
     Tick,
     Seek(f32),
 }
@@ -139,6 +139,12 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
             }
         }
 
+        Message::AddSong => {
+            if let Page::Home = app.page_actuelle {
+                app.home_page.add_song();
+            }
+        }
+
         Message::Tick => {
             if app.is_playing {
                 if let Some(p) = app.player.lock().unwrap().as_ref() {
@@ -225,7 +231,7 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
 
 fn view<'a>(app: &'a RustTune) -> Element<'a, Message> {
     let page_content = match app.page_actuelle {
-        Page::Home => app.home_page.view(),
+        Page::Home => app.home_page.view(&app.theme_choosen),
         Page::Profile => app.profile_page.view(&app.home_page),
         Page::Settings => app.settings_page.view(),
     };
@@ -353,16 +359,15 @@ impl RustTune {
 
 }
 
+
+
 fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
+    use std::fs::File;
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::probe::Hint;
     use symphonia::default::get_probe;
 
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(_) => return None,
-    };
-
+    let file = File::open(path).ok()?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
     let mut hint = Hint::new();
@@ -370,40 +375,30 @@ fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
         hint.with_extension(&ext.to_string_lossy().to_lowercase());
     }
 
-    let probed = match get_probe().format(&hint, mss, &Default::default(), &Default::default()) {
-        Ok(p) => p,
-        Err(_) => return None,
-    };
+    let probed = get_probe()
+        .format(&hint, mss, &Default::default(), &Default::default())
+        .ok()?;
 
-    let track = match probed.format.default_track() {
-        Some(t) => t,
-        None => return None,
-    };
-
+    let track = probed.format.default_track()?;
     let params = &track.codec_params;
 
-    // Méthode 1 : Calcul précis avec n_frames + sample_rate (la plus fiable)
+    // === MÉTHODE PRINCIPALE ===
     if let (Some(n_frames), Some(sample_rate)) = (params.n_frames, params.sample_rate) {
         let duration_secs = n_frames as f64 / sample_rate as f64;
         return Some(std::time::Duration::from_secs_f64(duration_secs));
     }
 
-    // Méthode 2 : Via time_base (fallback)
+    // Methode de secours
     if let (Some(time_base), Some(n_frames)) = (params.time_base, params.n_frames) {
         let time = time_base.calc_time(n_frames);
         let duration_secs = time.seconds as f64 + time.frac as f64;
         return Some(std::time::Duration::from_secs_f64(duration_secs));
     }
 
-    // Méthode 3 : Fallback rodio si Symphonia ne donne rien
-    if let Ok(file) = File::open(path) {
-        let buffered = BufReader::new(file);
-        if let Ok(source) = Decoder::new(buffered) {
-            return source.total_duration();
-        }
-    }
     None
 }
+
+
 
 // ====================== MAIN ======================
 pub fn main() -> iced::Result {
