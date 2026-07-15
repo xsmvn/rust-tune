@@ -18,3 +18,19 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 iced_aw = "0.14.1"
 rfd = "0.15"
+
+[package.metadata.appimage]
+name = "rust-tune"
+icon = "icon.png"
+
+# Extras
+assets = ["music_files"]
+
+auto_link = true
+auto_link_exclude_list = [
+    "libc.so*",
+    "libdl.so*",
+    "libpthread.so*",
+    "libgcc_s.so*",
+    "ld-linux-x86-64.so*"
+]

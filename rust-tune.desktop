@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=rust-tune
+Exec=rust-tune
+Icon=rust-tune
+Type=Application
+Categories=AudioVideo;Player;
+Terminal=false

@@ -16,7 +16,7 @@ impl ProfilePage {
 
         column![
             text("Profil").size(24),
-            text(format!("Musica Musica ++++")),
+            text(format!("Bonjour, nom du profile ici!")),
 
             container(
                 text("Vos statistique"),
