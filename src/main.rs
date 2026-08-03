@@ -150,20 +150,31 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 if let Some(p) = app.player.lock().unwrap().as_ref() {
                     let pos = p.get_pos();
                     let duration = *app.current_duration.lock().unwrap();
-                    if duration.as_secs() > 0 {
-                        app.current_progress = pos.as_secs_f32() / duration.as_secs_f32();
-                    } else {
-                        app.current_progress = (pos.as_secs_f32() / 180.0).min(1.0);
+                    if !duration.is_zero() {
+                        app.current_progress = (pos.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0);
                     }
                 }
             }
         }
+        
         Message::Seek(progress) => {
             if let Some(p) = app.player.lock().unwrap().as_ref() {
+                
                 let duration = *app.current_duration.lock().unwrap();
-                let target = duration.mul_f32(progress);
-                let _ = p.try_seek(target);
-                app.current_progress = progress;
+                if duration.is_zero() {
+                    return Task::none();
+                }
+
+                let target = duration.mul_f32(progress.clamp(0.0, 1.0));
+
+                match p.try_seek(target) {
+                    Ok(()) => {
+                        app.current_progress = progress;
+                    }
+                    Err(e) => {
+                        eprintln!("Seek failed: {:?}", e);
+                    }
+                }
             }
         }
     }
@@ -206,7 +217,7 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
     let time_display = text(format!("{} / {} {}", elapsed_text, total_text, remaining_text))
         .size(14);
 
-    row![
+    let controls = row![
         button(text("⏮")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::PreviousSong),
         if app.is_playing {
             button("⏸").style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::Pause)
@@ -220,12 +231,17 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
             .height(6)
             .step(0.001),
         
-        text(title).size(16),
         time_display,
     ]
     .spacing(16)
+    .align_y(Alignment::Center);
+
+    column![
+        text(title).size(16).width(Length::Fill).align_x(Alignment::Center),
+        controls,
+    ]
+    .spacing(8)
     .padding(16)
-    .align_y(Alignment::Center)
     .into()
 }
 
@@ -236,17 +252,45 @@ fn view<'a>(app: &'a RustTune) -> Element<'a, Message> {
         Page::Settings => app.settings_page.view(),
     };
 
+    // Page menus
     let navigation = container(
         column![
-            button("Accueil").style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::GoToHome),
-            button("Profil").style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::GoToProfile),
-            button("Paramètres").style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::GoToSettings),
+            button("Accueil")
+                .style(|_theme, _status| button::Style {
+                    background: None,
+                    text_color: WHITE,
+                    ..button::Style::default()
+                })
+                .on_press(Message::GoToHome),
+            button("Profil")
+                .style(|_theme, _status| button::Style {
+                    background: None,
+                    text_color: WHITE,
+                    ..button::Style::default()
+                })
+                .on_press(Message::GoToProfile),
+            button("Paramètres")
+                .style(|_theme, _status| button::Style {
+                    background: None,
+                    text_color: WHITE,
+                    ..button::Style::default()
+                })
+                .on_press(Message::GoToSettings),
         ]
-        .spacing(12)
-        .padding(20),
-    )
-    .height(Length::Fill);
+                .spacing(12)
+                .padding(20),
+        )
+        .style(|_theme| {
+            container::Style {
+                background: Some(iced::Background::Color(Color::from_rgb(0.64, 0.208, 0.224))),
+                border: border::rounded(40),
+                ..container::Style::default()
+            }
+        })
+        .height(Length::Fill);
 
+
+        
     let content = container(page_content)
         .width(Length::Fill)
         .height(Length::Fill)

@@ -14,9 +14,11 @@ impl SettingsPage {
     }
 
     pub fn view<'a>(&'a self) -> Element<'a, crate::Message> {
+        // themes taken from https://docs.iced.rs/iced/enum.Theme.html
         let themes = vec![
             Theme::Light,
             Theme::Dark,
+            Theme::CatppuccinMacchiato,
         ];
 
         column![

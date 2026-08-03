@@ -17,41 +17,27 @@ impl HomePage {
     }
 
     pub fn load_songs() -> Vec<Song> {
-        let mut songs = Vec::new();
-        let music_dir = Path::new("music_files");
+    let mut songs = Vec::new();
+    let music_dir = Path::new("music_files");
 
-        if !music_dir.exists() {
-            println!("Dossier 'music_files' non trouvé. Crée-le !");
-            return songs;
-        }
+    if !music_dir.exists() {
+        println!("Dossier 'music_files' non trouvé. Crée-le !");
+        return songs;
+    }
 
-        if let Ok(entries) = fs::read_dir(music_dir) {
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                if let Some(ext) = path.extension() {
-                    let ext_str = ext.to_string_lossy().to_lowercase();
-                    if ["mp3", "wav", "flac", "ogg"].contains(&ext_str.as_str()) {
-                        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                        let title = file_name.replace(".mp3", "")
-                                           .replace(".wav", "")
-                                           .replace(".flac", "")
-                                           .replace(".ogg", "");
-
-                        let song = Song {
-                            id: songs.len() as u32 + 1,
-                            title: title.clone(),
-                            genre: "Unknown".to_string(),
-                            release_year: 2025,
-                            artiste: "Unknown Artist".to_string(),
-                            file_path: path.to_string_lossy().to_string(),
-                        };
-                        songs.push(song);
-                    }
+    if let Ok(entries) = fs::read_dir(music_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                let ext = ext.to_string_lossy().to_lowercase();
+                if ["mp3", "wav", "flac", "ogg"].contains(&ext.as_str()) {
+                    songs.push(Song::from_path(&path, songs.len() as u32 + 1));
                 }
             }
         }
-        songs
     }
+    songs
+}
 
     pub fn refresh(&mut self) {
         self.Songs = Self::load_songs();
@@ -64,11 +50,16 @@ impl HomePage {
             .collect::<Vec<_>>();
 
         column![
-            row![
+           row![
                 text("Home").size(28),
-                button(text("Refresh")).on_press(Message::RefreshLibrary),
-                button(text("➕ Ajouter")).on_press(Message::AddSong),
-            ]
+                iced::widget::Space::new().width(Length::Fill),
+                button(text("Rafraîchir"))
+                    .style(crate::transparent_button_style(theme.clone()))
+                    .on_press(Message::RefreshLibrary),
+                button(text("Ajouter une chanson"))
+                    .style(crate::transparent_button_style(theme.clone()))
+                    .on_press(Message::AddSong),
+            ]   
             .spacing(15)
             .align_y(Alignment::Center),
 
@@ -86,36 +77,61 @@ impl HomePage {
     }
 
     fn create_song_card<'a>(&'a self, song: &Song, theme: &'a iced::Theme) -> Element<'a, crate::Message> {
-        button(
-            container(
-                column![
-                    text(song.title.clone())
-                        .size(19)
-                        .width(Length::Fill)
-                        .style(move |_t| {
-                            iced::widget::text::Style {
-                                color: match theme {
-                                    iced::Theme::Light => Some(iced_aw::style::colors::DARK),
-                                    _ => Some(iced_aw::style::colors::WHITE),
-                                }
-                            }
-                        }),
+    
+    let file_name = Path::new(&song.file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| song.file_path.clone());
 
-                    row![
-                        text(song.genre.clone()).size(14),
-                        text(" • ").size(14),
-                        text(song.artiste.clone()).size(14),
-                    ].spacing(6),
-                ]
-                .spacing(10)
-                .padding(10)
-            )
-            .width(Length::Fixed(340.0))
+    button(
+        container(
+            column![
+                // Title
+                text(song.title.clone())
+                    .size(18)
+                    .width(Length::Fill)
+                    .style(move |_t| {
+                        iced::widget::text::Style {
+                            color: match theme {
+                                iced::Theme::Light => Some(iced_aw::style::colors::DARK),
+                                _ => Some(iced_aw::style::colors::WHITE),
+                            }
+                        }
+                    }),
+
+                // Artist
+                text(song.artiste.clone())
+                    .size(14)
+                    .style(move |_t| {
+                        iced::widget::text::Style {
+                            color: match theme {
+                                iced::Theme::Light => Some(iced::Color::from_rgb(0.3, 0.3, 0.3)),
+                                _ => Some(iced::Color::from_rgb(0.7, 0.7, 0.7)),
+                            }
+                        }
+                    }),
+
+                // doc name
+                text(file_name)
+                    .size(11)
+                    .style(move |_t| {
+                        iced::widget::text::Style {
+                            color: match theme {
+                                iced::Theme::Light => Some(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+                                _ => Some(iced::Color::from_rgb(0.55, 0.55, 0.55)),
+                            }
+                        }
+                    }),
+            ]
+            .spacing(4)
+            .padding(12)
         )
-        .style(crate::transparent_button_style(theme.clone())) 
-        .on_press(Message::PlaySong(song.file_path.clone()))
-        .into()
-    }
+        .width(Length::Fixed(340.0))
+    )
+    .style(crate::transparent_button_style(theme.clone()))
+    .on_press(Message::PlaySong(song.file_path.clone()))
+    .into()
+}
 
     pub fn add_song(&mut self) {
         if let Some(file_path) = FileDialog::new()
