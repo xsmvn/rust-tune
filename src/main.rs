@@ -156,7 +156,7 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 }
             }
         }
-        
+
         Message::Seek(progress) => {
             if let Some(p) = app.player.lock().unwrap().as_ref() {
                 
@@ -334,7 +334,8 @@ impl RustTune {
         let path = file_path.to_string();
 
         std::thread::spawn(move || {
-            let duration = get_audio_duration(&path).unwrap_or(std::time::Duration::from_secs(180));
+            let duration = get_audio_duration(&path)
+                .unwrap_or(std::time::Duration::from_secs(180));
             {
                 let mut dur = duration_clone.lock().unwrap();
                 *dur = duration;
@@ -352,13 +353,18 @@ impl RustTune {
             let mixer = guard.as_ref().unwrap().mixer();
             let player = Player::connect_new(&mixer);
 
-            if let Ok(file) = File::open(&path) {
-                let buffered = BufReader::new(file);
-                if let Ok(source) = Decoder::new(buffered) {
-                    player.append(source);
-                    let mut p = player_clone.lock().unwrap();
-                    *p = Some(player);
+            match File::open(&path) {
+                Ok(file) => {
+                    match Decoder::try_from(file) {
+                        Ok(source) => {
+                            player.append(source);
+                            let mut p = player_clone.lock().unwrap();
+                            *p = Some(player);
+                        }
+                        Err(e) => eprintln!("Erreur de décodage : {:?}", e),
+                    }
                 }
+                Err(e) => eprintln!("Impossible d'ouvrir le fichier : {:?}", e),
             }
         });
     }

@@ -86,7 +86,7 @@ impl HomePage {
     button(
         container(
             column![
-                // Title
+                // audio file title, if the title is empty, display the file name. check the metadata of the file
                 text(song.title.clone())
                     .size(18)
                     .width(Length::Fill)
@@ -99,7 +99,7 @@ impl HomePage {
                         }
                     }),
 
-                // Artist
+            
                 text(song.artiste.clone())
                     .size(14)
                     .style(move |_t| {
@@ -111,7 +111,6 @@ impl HomePage {
                         }
                     }),
 
-                // doc name
                 text(file_name)
                     .size(11)
                     .style(move |_t| {

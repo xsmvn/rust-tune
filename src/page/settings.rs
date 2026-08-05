@@ -19,6 +19,7 @@ impl SettingsPage {
             Theme::Light,
             Theme::Dark,
             Theme::CatppuccinMacchiato,
+            Theme::KanagawaLotus,
         ];
 
         column![
