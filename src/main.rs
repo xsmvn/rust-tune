@@ -45,6 +45,7 @@ pub enum Message {
     PlaySong(String),
     RefreshLibrary,
     AddSong,
+    DeleteSong(String),
     Tick,
     Seek(f32),
 }
@@ -142,6 +143,20 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
         Message::AddSong => {
             if let Page::Home = app.page_actuelle {
                 app.home_page.add_song();
+            }
+        }
+
+        Message::DeleteSong(path) => {
+            if app.current_song.as_ref() == Some(&path) {
+                let _ = app.player.lock().unwrap().take();
+                app.current_song = None;
+                app.is_playing = false;
+                app.current_progress = 0.0;
+                *app.current_duration.lock().unwrap() = std::time::Duration::from_secs(0);
+            }
+
+            if let Page::Home = app.page_actuelle {
+                app.home_page.delete_song(&path);
             }
         }
 

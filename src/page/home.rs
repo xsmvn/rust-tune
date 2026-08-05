@@ -77,59 +77,80 @@ impl HomePage {
     }
 
     fn create_song_card<'a>(&'a self, song: &Song, theme: &'a iced::Theme) -> Element<'a, crate::Message> {
-    
-    let file_name = Path::new(&song.file_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| song.file_path.clone());
+        let file_name = Path::new(&song.file_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| song.file_path.clone());
 
-    button(
-        container(
-            column![
-                // audio file title, if the title is empty, display the file name. check the metadata of the file
-                text(song.title.clone())
-                    .size(18)
-                    .width(Length::Fill)
-                    .style(move |_t| {
-                        iced::widget::text::Style {
-                            color: match theme {
-                                iced::Theme::Light => Some(iced_aw::style::colors::DARK),
-                                _ => Some(iced_aw::style::colors::WHITE),
-                            }
+        let title_row = row![
+            text(song.title.clone())
+                .size(18)
+                .width(Length::Fill)
+                .style(move |_t| {
+                    iced::widget::text::Style {
+                        color: match theme {
+                            iced::Theme::Light => Some(iced_aw::style::colors::DARK),
+                            _ => Some(iced_aw::style::colors::WHITE),
                         }
-                    }),
+                    }
+                }),
 
-            
-                text(song.artiste.clone())
-                    .size(14)
-                    .style(move |_t| {
-                        iced::widget::text::Style {
-                            color: match theme {
-                                iced::Theme::Light => Some(iced::Color::from_rgb(0.3, 0.3, 0.3)),
-                                _ => Some(iced::Color::from_rgb(0.7, 0.7, 0.7)),
-                            }
-                        }
-                    }),
+            button(text("🗑").size(16))
+                .style(crate::transparent_button_style(theme.clone()))
+                .on_press(Message::DeleteSong(song.file_path.clone()))
+                .padding([4, 8]),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
 
-                text(file_name)
-                    .size(11)
-                    .style(move |_t| {
-                        iced::widget::text::Style {
-                            color: match theme {
-                                iced::Theme::Light => Some(iced::Color::from_rgb(0.5, 0.5, 0.5)),
-                                _ => Some(iced::Color::from_rgb(0.55, 0.55, 0.55)),
+        let content = button(
+            container(
+                column![
+                    title_row,
+                    text(song.artiste.clone())
+                        .size(14)
+                        .style(move |_t| {
+                            iced::widget::text::Style {
+                                color: match theme {
+                                    iced::Theme::Light => Some(iced::Color::from_rgb(0.3, 0.3, 0.3)),
+                                    _ => Some(iced::Color::from_rgb(0.7, 0.7, 0.7)),
+                                }
                             }
-                        }
-                    }),
-            ]
-            .spacing(4)
-            .padding(12)
+                        }),
+                    text(file_name)
+                        .size(11)
+                        .style(move |_t| {
+                            iced::widget::text::Style {
+                                color: match theme {
+                                    iced::Theme::Light => Some(iced::Color::from_rgb(0.5, 0.5, 0.5)),
+                                    _ => Some(iced::Color::from_rgb(0.55, 0.55, 0.55)),
+                                }
+                            }
+                        }),
+                ]
+                .spacing(4)
+                .padding(12)
+            )
+            .width(Length::Fixed(340.0))
         )
-        .width(Length::Fixed(340.0))
-    )
-    .style(crate::transparent_button_style(theme.clone()))
-    .on_press(Message::PlaySong(song.file_path.clone()))
-    .into()
+        .style(crate::transparent_button_style(theme.clone()))
+        .on_press(Message::PlaySong(song.file_path.clone()));
+
+        content.into()
+}
+
+pub fn delete_song(&mut self, path: &str) {
+    let file_path = Path::new(path);
+
+    match fs::remove_file(file_path) {
+        Ok(_) => {
+            println!("Fichier supprimé : {}", path);
+            self.refresh();
+        }
+        Err(e) => {
+            eprintln!("Erreur lors de la suppression de {} : {}", path, e);
+        }
+    }
 }
 
     pub fn add_song(&mut self) {
