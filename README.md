@@ -17,6 +17,9 @@ Projet étudiant pour l'ESIG.
 - Rust (édition 2024)
 - Linux (testé sur Debian 13 et Ubuntu 26.04 LTS)
 
+## Appimage
+L'ajout de nouveau fichiers audio n'est pas fonctionnel, l'appimage est en lecture seule donc entrevoir la sauvegarde des fichiers de musique dans un autre emplacemen
+
 ## Installation
 
 ```bash
@@ -24,5 +27,4 @@ git clone https://github.com/xsmvn/rust-tune.git
 cd rust-tune
 cargo run --release
 
-## Appimage
-L'ajout de nouveau fichiers audio n'est pas fonctionnel, l'appimage est en lecture seule donc entrevoir la sauvegarde des fichiers de musique dans un autre emplacement
+
