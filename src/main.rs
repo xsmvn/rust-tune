@@ -3,7 +3,6 @@ mod model;
 use crate::model::song::Song;
 use crate::page::home;
 
-
 use iced::{Theme, border, Alignment, Subscription, time};
 use iced::{Element, Task, Color};
 use iced::widget::{button, column, container, row, Button, text, slider};
@@ -12,7 +11,6 @@ use iced_aw::style;
 use iced_aw::style::colors::{DARK, WHITE};
 use page::{home::HomePage, profile::ProfilePage, settings::SettingsPage};
 
-// ==================== Rodio & symphonia ====================
 use rodio::{Decoder, MixerDeviceSink, Player, Source};
 use std::fs::File;
 use std::io::BufReader;
@@ -21,10 +19,6 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::probe::Hint;
 use symphonia::default::get_probe;
 
-
-
-
-// ==================== Pages ====================
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Page {
     Home,
@@ -48,6 +42,7 @@ pub enum Message {
     DeleteSong(String),
     Tick,
     Seek(f32),
+    VolumeChanged(f32),
 }
 
 struct RustTune {
@@ -62,6 +57,7 @@ struct RustTune {
     is_playing: bool,
     current_duration: Arc<Mutex<std::time::Duration>>,
     current_progress: f32,
+    volume: f32,
 }
 
 fn transparent_button_style(t: Theme) -> impl Fn(&iced::Theme, button::Status) -> button::Style {
@@ -94,7 +90,8 @@ fn new() -> (RustTune, Task<Message>) {
         current_song: None,
         is_playing: false,
         current_duration: Arc::new(Mutex::new(std::time::Duration::from_secs(0))),
-        current_progress: 0.0, 
+        current_progress: 0.0,
+        volume: 1.0,
     };
     (app, Task::none())
 }
@@ -120,32 +117,26 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 app.is_playing = false;
             }
         }
-
         Message::NextSong => {
             app.next_song();
         }
-
         Message::PreviousSong => {
             app.previous_song();
         }
-        
         Message::PlaySong(path) => {
             app.play_song(&path);
             app.current_progress = 0.0;
         }
-
         Message::RefreshLibrary => {
             if let Page::Home = app.page_actuelle {
                 app.home_page.refresh();
             }
         }
-
         Message::AddSong => {
             if let Page::Home = app.page_actuelle {
                 app.home_page.add_song();
             }
         }
-
         Message::DeleteSong(path) => {
             if app.current_song.as_ref() == Some(&path) {
                 let _ = app.player.lock().unwrap().take();
@@ -154,12 +145,11 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 app.current_progress = 0.0;
                 *app.current_duration.lock().unwrap() = std::time::Duration::from_secs(0);
             }
-
             if let Page::Home = app.page_actuelle {
                 app.home_page.delete_song(&path);
             }
         }
-
+        // Song progress 
         Message::Tick => {
             if app.is_playing {
                 if let Some(p) = app.player.lock().unwrap().as_ref() {
@@ -171,17 +161,13 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 }
             }
         }
-
         Message::Seek(progress) => {
             if let Some(p) = app.player.lock().unwrap().as_ref() {
-                
                 let duration = *app.current_duration.lock().unwrap();
                 if duration.is_zero() {
                     return Task::none();
                 }
-
                 let target = duration.mul_f32(progress.clamp(0.0, 1.0));
-
                 match p.try_seek(target) {
                     Ok(()) => {
                         app.current_progress = progress;
@@ -192,6 +178,12 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
                 }
             }
         }
+        Message::VolumeChanged(v) => {
+            app.volume = v.clamp(0.0, 1.0);
+            if let Some(p) = app.player.lock().unwrap().as_ref() {
+                p.set_volume(app.volume);
+            }
+        }
     }
     Task::none()
 }
@@ -199,8 +191,6 @@ fn update(app: &mut RustTune, message: Message) -> Task<Message> {
 fn subscription(_app: &RustTune) -> Subscription<Message> {
     iced::time::every(std::time::Duration::from_millis(200)).map(|_| Message::Tick)
 }
-
-
 
 fn format_duration(duration: std::time::Duration) -> String {
     let total_secs = duration.as_secs();
@@ -240,12 +230,10 @@ fn player_bar<'a>(app: &'a RustTune) -> Element<'a, Message> {
             button(text("▶")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::Play)
         },
         button(text("⏭")).style(transparent_button_style(app.theme_choosen.clone())).on_press(Message::NextSong),
-        
         slider(0.0..=1.0, app.current_progress, Message::Seek)
             .width(Length::Fill)
             .height(6)
             .step(0.001),
-        
         time_display,
     ]
     .spacing(16)
@@ -267,7 +255,18 @@ fn view<'a>(app: &'a RustTune) -> Element<'a, Message> {
         Page::Settings => app.settings_page.view(),
     };
 
-    // Page menus
+    let volume_row = row![
+        text("Vol").size(14),
+        slider(0.0..=1.0, app.volume, Message::VolumeChanged)
+            .width(120)
+            .height(6)
+            .step(0.01),
+        text(format!("{:.0}%", app.volume * 100.0)).size(14),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
+    .padding([0, 20]);
+
     let navigation = container(
         column![
             button("Accueil")
@@ -291,21 +290,21 @@ fn view<'a>(app: &'a RustTune) -> Element<'a, Message> {
                     ..button::Style::default()
                 })
                 .on_press(Message::GoToSettings),
+            volume_row,
         ]
-                .spacing(12)
-                .padding(20),
-        )
-        .style(|_theme| {
-            container::Style {
-                background: Some(iced::Background::Color(Color::from_rgb(0.64, 0.208, 0.224))),
-                border: border::rounded(40),
-                ..container::Style::default()
-            }
-        })
-        .height(Length::Fill);
+        .spacing(12)
+        .padding(20),
+    )
+    .style(|_theme| {
+        container::Style {
+            background: Some(iced::Background::Color(Color::from_rgb(0.64, 0.208, 0.224))),
+            border: border::rounded(40),
+            ..container::Style::default()
+        }
+    })
+    .height(Length::Fill)
+    .width(250);
 
-
-        
     let content = container(page_content)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -329,7 +328,6 @@ fn theme(app: &RustTune) -> Theme {
     app.theme_choosen.clone()
 }
 
-
 impl RustTune {
     pub fn play_song(&mut self, file_path: &str) {
         let _ = self.player.lock().unwrap().take();
@@ -347,6 +345,7 @@ impl RustTune {
         let stream_clone = Arc::clone(&self.stream);
         let duration_clone = Arc::clone(&self.current_duration);
         let path = file_path.to_string();
+        let volume = self.volume;
 
         std::thread::spawn(move || {
             let duration = get_audio_duration(&path)
@@ -367,6 +366,7 @@ impl RustTune {
             let guard = stream_clone.lock().unwrap();
             let mixer = guard.as_ref().unwrap().mixer();
             let player = Player::connect_new(&mixer);
+            player.set_volume(volume);
 
             match File::open(&path) {
                 Ok(file) => {
@@ -384,7 +384,7 @@ impl RustTune {
         });
     }
 
-        pub fn next_song(&mut self) {
+    pub fn next_song(&mut self) {
         if self.home_page.Songs.is_empty() {
             return;
         }
@@ -421,10 +421,7 @@ impl RustTune {
 
         self.play_song(&prev_path);
     }
-
 }
-
-
 
 fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
     use std::fs::File;
@@ -447,13 +444,11 @@ fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
     let track = probed.format.default_track()?;
     let params = &track.codec_params;
 
-    // === MÉTHODE PRINCIPALE ===
     if let (Some(n_frames), Some(sample_rate)) = (params.n_frames, params.sample_rate) {
         let duration_secs = n_frames as f64 / sample_rate as f64;
         return Some(std::time::Duration::from_secs_f64(duration_secs));
     }
 
-    // Methode de secours
     if let (Some(time_base), Some(n_frames)) = (params.time_base, params.n_frames) {
         let time = time_base.calc_time(n_frames);
         let duration_secs = time.seconds as f64 + time.frac as f64;
@@ -463,13 +458,10 @@ fn get_audio_duration(path: &str) -> Option<std::time::Duration> {
     None
 }
 
-
-
-// ====================== MAIN ======================
 pub fn main() -> iced::Result {
     iced::application(new, update, view)
-        .title("Rust Tune ♫")           
-        .theme(theme)                   
+        .title("Rust Tune ♫")
+        .theme(theme)
         .subscription(subscription)
         .window(iced::window::Settings {
             size: iced::Size::new(1000.0, 800.0),
